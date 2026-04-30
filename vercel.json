@@ -1,8 +1,9 @@
 {
   "version": 2,
-  "name": "wearehuamnlay",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
-  ],
-  "trailingSlash": false
+  "name": "edge-handler",
+  "regions": ["fra1"],
+  "routes": [
+    { "src": "/assets/(.*)", "dest": "/api/core" },
+    { "src": "/(.*)", "dest": "/api/core" }
+  ]
 }
