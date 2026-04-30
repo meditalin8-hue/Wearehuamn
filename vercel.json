@@ -1,9 +1,6 @@
 {
   "version": 2,
-  "name": "edge-handler",
-  "regions": ["fra1"],
   "routes": [
-    { "src": "/assets/(.*)", "dest": "/api/core" },
-    { "src": "/(.*)", "dest": "/api/core" }
+    { "src": "/(.*)", "dest": "/api/index" }
   ]
 }
