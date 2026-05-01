@@ -2,32 +2,170 @@ export const config = {
   runtime: "edge",
 };
 
-const BASE = (process.env.API_BASE || "").replace(/\/$/, "");
+const TARGET_BASE = (process.env.TARGET_DOMAIN || "").replace(/\/$/, "");
+
+const STRIP_HEADERS = new Set([
+  "host",
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "forwarded",
+  "x-forwarded-host",
+  "x-forwarded-proto",
+  "x-forwarded-port",
+]);
+
+// HTML صفحه اسپید تست
+const SPEEDTEST_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Speed Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #f0f2f5; }
+    .container { text-align: center; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 400px; width: 90%; }
+    button { padding: 12px 24px; font-size: 16px; background: #0070f3; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    button:disabled { background: #99c0ff; cursor: not-allowed; }
+    .result { margin-top: 20px; font-size: 24px; font-weight: bold; }
+    .progress { width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden; margin: 20px 0; display: none; }
+    .progress-bar { height: 100%; width: 0; background: #0070f3; transition: width 0.2s; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>⚡ Speed Test</h2>
+    <p>Check your download speed</p>
+    <button id="startBtn" onclick="startTest()">Start Test</button>
+    <div class="progress" id="progress"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="result" id="result"></div>
+  </div>
+  <script>
+    async function startTest() {
+      const btn = document.getElementById('startBtn');
+      const progressDiv = document.getElementById('progress');
+      const progressBar = document.getElementById('progressBar');
+      const resultDiv = document.getElementById('result');
+      btn.disabled = true;
+      resultDiv.textContent = '';
+      progressDiv.style.display = 'block';
+      progressBar.style.width = '0%';
+
+      const testFileUrl = '/speedtest';
+      const startTime = performance.now();
+      let loadedBytes = 0;
+      try {
+        const response = await fetch(testFileUrl);
+        const reader = response.body.getReader();
+        const contentLength = +response.headers.get('Content-Length');
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          loadedBytes += value.length;
+          if (contentLength) {
+            progressBar.style.width = (loadedBytes / contentLength) * 100 + '%';
+          }
+        }
+        const duration = (performance.now() - startTime) / 1000;
+        const speedMbps = ((loadedBytes * 8) / (duration * 1000000)).toFixed(2);
+        resultDiv.textContent = `${speedMbps} Mbps`;
+      } catch (e) {
+        resultDiv.textContent = 'Test failed.';
+      } finally {
+        btn.disabled = false;
+        progressDiv.style.display = 'none';
+      }
+    }
+  </script>
+</body>
+</html>`;
 
 export default async function handler(req) {
-  if (!BASE) {
-    return new Response("Config error", { status: 500 });
-  }
-
   const url = new URL(req.url);
+  const pathname = url.pathname;
 
-  // مسیر مستقیم بدون پردازش اضافه
-  const target = BASE + url.pathname + url.search;
-
-  // فقط متدهای لازم برای کاهش پردازش
-  if (
-    req.method !== "GET" &&
-    req.method !== "POST" &&
-    req.method !== "HEAD"
-  ) {
-    return new Response("Not allowed", { status: 405 });
+  // صفحه اصلی اسپید تست (فقط GET)
+  if (req.method === "GET" && pathname === "/") {
+    return new Response(SPEEDTEST_HTML, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   }
 
-  return fetch(target, {
-    method: req.method,
-    headers: req.headers,
-    body: req.method === "POST" ? req.body : undefined,
-    duplex: "half",
-    redirect: "follow",
-  });
+  // تولید فایل دانلود برای تست سرعت (10 مگابایت)
+  if (req.method === "GET" && pathname === "/speedtest") {
+    const totalBytes = 10 * 1024 * 1024; // 10 MB
+    const stream = new ReadableStream({
+      pull(controller) {
+        // به‌دلیل محدودیت حافظه، هر بار یک تکه کوچک ارسال می‌کنیم
+        const chunkSize = 64 * 1024; // 64 KB
+        const chunk = new Uint8Array(chunkSize);
+        controller.enqueue(chunk);
+        totalBytesLeft -= chunkSize;
+        if (totalBytesLeft <= 0) {
+          controller.close();
+        }
+      }
+    });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Cache-Control": "no-store",
+        "Content-Length": String(totalBytes),
+      },
+    });
+  }
+
+  // ---------- منطق اصلی پروکسی (دست نخورده) ----------
+  if (!TARGET_BASE) {
+    return new Response("Misconfigured: TARGET_DOMAIN is not set", { status: 500 });
+  }
+
+  try {
+    const targetUrl = TARGET_BASE + url.pathname + url.search;
+
+    const headers = new Headers();
+    let clientIp = null;
+    for (const [key, value] of req.headers) {
+      const k = key.toLowerCase();
+      if (STRIP_HEADERS.has(k)) continue;
+      if (k.startsWith("x-vercel-")) continue;
+      if (k === "x-real-ip") { clientIp = value; continue; }
+      if (k === "x-forwarded-for") { if (!clientIp) clientIp = value; continue; }
+      headers.set(k, value);
+    }
+    if (clientIp) headers.set("x-forwarded-for", clientIp);
+
+    const method = req.method;
+    const hasBody = method !== "GET" && method !== "HEAD";
+
+    const fetchOpts = {
+      method,
+      headers,
+      redirect: "manual",
+    };
+    if (hasBody) {
+      fetchOpts.body = req.body;
+      fetchOpts.duplex = "half";
+    }
+
+    const upstream = await fetch(targetUrl, fetchOpts);
+
+    const respHeaders = new Headers();
+    for (const [k, v] of upstream.headers) {
+      if (k.toLowerCase() === "transfer-encoding") continue;
+      respHeaders.set(k, v);
+    }
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: respHeaders,
+    });
+  } catch (err) {
+    return new Response("Bad Gateway: Tunnel Failed", { status: 502 });
+  }
 }
