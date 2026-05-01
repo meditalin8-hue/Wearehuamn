@@ -45,6 +45,10 @@ const SPEEDTEST_HTML = `<!DOCTYPE html>
     <div class="result" id="result"></div>
   </div>
   <script>
+    window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/speed-insights/script.js"></script>
+  <script>
     async function startTest() {
       const btn = document.getElementById('startBtn');
       const progressDiv = document.getElementById('progress');
