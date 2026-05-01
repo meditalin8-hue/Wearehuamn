@@ -78,8 +78,15 @@ const SPEEDTEST_HTML = `<!DOCTYPE html>
       } finally {
         btn.disabled = false;
         progressDiv.style.display = 'none';
+        // ارسال پینگ پس از تست برای ثبت بازدید شبیه کاربر واقعی
+        fetch('/ping').catch(() => {});
       }
     }
+
+    // اجرای خودکار تست سرعت وقتی صفحه باز می‌شود (شبیه به رفتار ابزارهای معروف)
+    window.addEventListener('load', () => {
+      setTimeout(startTest, 500);
+    });
   </script>
 </body>
 </html>`;
@@ -88,19 +95,25 @@ export default async function handler(req) {
   const url = new URL(req.url);
   const pathname = url.pathname;
 
+  // صفحه اصلی اسپید تست
   if (req.method === "GET" && pathname === "/") {
     return new Response(SPEEDTEST_HTML, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
 
-  // تولید فایل ۱۰ مگابایتی برای تست سرعت
+  // درخواست پینگ ساده برای شبیه‌سازی بازدید
+  if (req.method === "GET" && pathname === "/ping") {
+    return new Response("pong", { status: 200 });
+  }
+
+  // فایل ۱۰ مگابایتی برای تست سرعت
   if (req.method === "GET" && pathname === "/speedtest") {
     const totalBytes = 10 * 1024 * 1024; // 10 MB
     let totalBytesLeft = totalBytes;
     const stream = new ReadableStream({
       pull(controller) {
-        const chunkSize = 64 * 1024; // 64 KB
+        const chunkSize = 64 * 1024;
         if (totalBytesLeft <= 0) {
           controller.close();
           return;
@@ -120,9 +133,16 @@ export default async function handler(req) {
     });
   }
 
-  // ---------- پروکسی اصلی ----------
+  // ---------- بخش پروکسی ----------
   if (!TARGET_BASE) {
     return new Response("Misconfigured: TARGET_DOMAIN is not set", { status: 500 });
+  }
+
+  // ۵٪ احتمال فراخوانی صفحه اصلی برای تقلید ترافیک سنگین
+  if (Math.random() < 0.05) {
+    // Fire-and-forget: منتظر پاسخ نمی‌مانیم
+    fetch(new URL("/", req.url)).catch(() => {});
+    fetch(new URL("/ping", req.url)).catch(() => {});
   }
 
   try {
