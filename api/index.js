@@ -20,7 +20,6 @@ const STRIP_HEADERS = new Set([
   "x-forwarded-port",
 ]);
 
-// HTML صفحه اسپید تست
 const SPEEDTEST_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -73,7 +72,7 @@ const SPEEDTEST_HTML = `<!DOCTYPE html>
         }
         const duration = (performance.now() - startTime) / 1000;
         const speedMbps = ((loadedBytes * 8) / (duration * 1000000)).toFixed(2);
-        resultDiv.textContent = `${speedMbps} Mbps`;
+        resultDiv.textContent = \`\${speedMbps} Mbps\`;
       } catch (e) {
         resultDiv.textContent = 'Test failed.';
       } finally {
@@ -89,27 +88,28 @@ export default async function handler(req) {
   const url = new URL(req.url);
   const pathname = url.pathname;
 
-  // صفحه اصلی اسپید تست (فقط GET)
   if (req.method === "GET" && pathname === "/") {
     return new Response(SPEEDTEST_HTML, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
 
-  // تولید فایل دانلود برای تست سرعت (10 مگابایت)
+  // تولید فایل ۱۰ مگابایتی برای تست سرعت
   if (req.method === "GET" && pathname === "/speedtest") {
     const totalBytes = 10 * 1024 * 1024; // 10 MB
+    let totalBytesLeft = totalBytes;
     const stream = new ReadableStream({
       pull(controller) {
-        // به‌دلیل محدودیت حافظه، هر بار یک تکه کوچک ارسال می‌کنیم
         const chunkSize = 64 * 1024; // 64 KB
-        const chunk = new Uint8Array(chunkSize);
-        controller.enqueue(chunk);
-        totalBytesLeft -= chunkSize;
         if (totalBytesLeft <= 0) {
           controller.close();
+          return;
         }
-      }
+        const size = Math.min(chunkSize, totalBytesLeft);
+        const chunk = new Uint8Array(size);
+        controller.enqueue(chunk);
+        totalBytesLeft -= size;
+      },
     });
     return new Response(stream, {
       headers: {
@@ -120,7 +120,7 @@ export default async function handler(req) {
     });
   }
 
-  // ---------- منطق اصلی پروکسی (دست نخورده) ----------
+  // ---------- پروکسی اصلی ----------
   if (!TARGET_BASE) {
     return new Response("Misconfigured: TARGET_DOMAIN is not set", { status: 500 });
   }
